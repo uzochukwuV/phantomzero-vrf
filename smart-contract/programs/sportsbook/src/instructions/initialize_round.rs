@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::{BettingPool, RoundAccounting};
+use crate::errors::SportsbookError;
 
 #[derive(Accounts)]
 #[instruction(round_id: u64)]
@@ -23,6 +24,15 @@ pub struct InitializeRound<'info> {
 }
 
 pub fn handler(ctx: Context<InitializeRound>, round_id: u64) -> Result<()> {
+    // Validate round_id is sequential
+    require!(
+        round_id == ctx.accounts.betting_pool.next_round_id,
+        SportsbookError::InvalidRoundId
+    );
+
+    // Increment next_round_id for future rounds
+    ctx.accounts.betting_pool.next_round_id += 1;
+
     let round_accounting = &mut ctx.accounts.round_accounting;
 
     // Initialize round

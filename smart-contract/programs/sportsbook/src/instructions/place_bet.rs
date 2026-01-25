@@ -246,9 +246,9 @@ pub fn handler(
             amount_in_pool: allocation,
         };
 
-        // Add to appropriate match pool
+        // Add to appropriate match pool (with overflow protection)
         let pool = &mut ctx.accounts.round_accounting.match_pools[match_index as usize];
-        pool.add_to_pool(outcome, allocation);
+        pool.add_to_pool(outcome, allocation)?;
     }
 
     ctx.accounts.bet.predictions = predictions;

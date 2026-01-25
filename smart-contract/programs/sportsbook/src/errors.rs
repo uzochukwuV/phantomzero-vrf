@@ -53,6 +53,9 @@ pub enum SportsbookError {
     #[msg("Revenue already distributed")]
     RevenueAlreadyDistributed,
 
+    #[msg("Cannot distribute revenue while winners haven't claimed")]
+    RevenueDistributedBeforeClaims,
+
     #[msg("Overflow in calculation")]
     CalculationOverflow,
 

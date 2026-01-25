@@ -122,6 +122,12 @@ pub fn handler(
                 token::transfer(cpi_ctx, betting_pool_balance)?;
             }
 
+            // Ensure LP has sufficient liquidity to cover shortfall
+            require!(
+                ctx.accounts.liquidity_pool.total_liquidity >= shortfall,
+                SportsbookError::InsufficientLPLiquidity
+            );
+
             // Pull shortfall from LP
             let seeds = &[b"liquidity_pool", betting_pool_key.as_ref(), &[liquidity_pool_bump]];
             let signer = &[&seeds[..]];
@@ -135,7 +141,7 @@ pub fn handler(
             let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
             token::transfer(cpi_ctx, shortfall)?;
 
-            // Update LP liquidity
+            // Update LP liquidity (safe after the check above)
             ctx.accounts.liquidity_pool.total_liquidity -= shortfall;
             ctx.accounts.liquidity_pool.available_liquidity = ctx.accounts.liquidity_pool
                 .total_liquidity

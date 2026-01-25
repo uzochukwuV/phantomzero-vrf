@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::Mint;
 use crate::state::{BettingPool, LiquidityPool};
 
 #[derive(Accounts)]
@@ -25,8 +26,7 @@ pub struct Initialize<'info> {
     pub authority: Signer<'info>,
 
     /// SPL token mint for betting token (e.g., LEAGUE)
-    /// CHECK: Token mint is validated by SPL token program
-    pub token_mint: UncheckedAccount<'info>,
+    pub token_mint: Account<'info, Mint>,
 
     /// Protocol treasury for fee collection
     /// CHECK: Treasury address is set by authority

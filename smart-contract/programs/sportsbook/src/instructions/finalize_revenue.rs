@@ -41,6 +41,13 @@ pub struct FinalizeRoundRevenue<'info> {
 }
 
 pub fn handler(ctx: Context<FinalizeRoundRevenue>, round_id: u64) -> Result<()> {
+    // Ensure all reserved winnings have been claimed before distributing revenue
+    // This prevents distributing profit while winners haven't been paid yet
+    require!(
+        ctx.accounts.round_accounting.total_claimed >= ctx.accounts.round_accounting.total_reserved_for_winners,
+        SportsbookError::RevenueDistributedBeforeClaims
+    );
+
     // Extract account infos and keys BEFORE mutable borrows
     let betting_pool_info = ctx.accounts.betting_pool.to_account_info();
     let betting_pool_bump = ctx.accounts.betting_pool.bump;

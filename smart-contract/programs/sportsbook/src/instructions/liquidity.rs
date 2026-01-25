@@ -58,8 +58,8 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, amount: u64) -> Result<()> {
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
     token::transfer(cpi_ctx, amount)?;
 
-    // Calculate shares
-    let shares = ctx.accounts.liquidity_pool.add_liquidity(amount);
+    // Calculate shares (with overflow protection)
+    let shares = ctx.accounts.liquidity_pool.add_liquidity(amount)?;
 
     // Initialize or update LP position
     if ctx.accounts.lp_position.owner == Pubkey::default() {
@@ -68,7 +68,10 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, amount: u64) -> Result<()> {
         ctx.accounts.lp_position.shares = shares;
         ctx.accounts.lp_position.bump = lp_bump;
     } else {
-        ctx.accounts.lp_position.shares += shares;
+        // Check for overflow when adding to existing shares
+        ctx.accounts.lp_position.shares = ctx.accounts.lp_position.shares
+            .checked_add(shares)
+            .ok_or(SportsbookError::NumericalOverflow)?;
     }
 
     msg!("Added {} tokens to LP, received {} shares", amount, shares);

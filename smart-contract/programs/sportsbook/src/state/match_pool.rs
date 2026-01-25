@@ -17,14 +17,32 @@ pub struct MatchPool {
 }
 
 impl MatchPool {
-    pub fn add_to_pool(&mut self, outcome: u8, amount: u64) {
+    pub fn add_to_pool(&mut self, outcome: u8, amount: u64) -> Result<()> {
+        // Validate outcome (1=HOME_WIN, 2=AWAY_WIN, 3=DRAW)
         match outcome {
-            1 => self.home_win_pool += amount,
-            2 => self.away_win_pool += amount,
-            3 => self.draw_pool += amount,
-            _ => panic!("Invalid outcome"),
+            1 => {
+                self.home_win_pool = self.home_win_pool
+                    .checked_add(amount)
+                    .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+            }
+            2 => {
+                self.away_win_pool = self.away_win_pool
+                    .checked_add(amount)
+                    .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+            }
+            3 => {
+                self.draw_pool = self.draw_pool
+                    .checked_add(amount)
+                    .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+            }
+            _ => return Err(error!(anchor_lang::error::ErrorCode::ConstraintRaw)),
         }
-        self.total_pool += amount;
+
+        self.total_pool = self.total_pool
+            .checked_add(amount)
+            .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+
+        Ok(())
     }
 
     pub fn get_pool_amount(&self, outcome: u8) -> u64 {

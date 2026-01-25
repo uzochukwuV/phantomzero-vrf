@@ -3,13 +3,13 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-sportsbook = "Sports11111111111111111111111111111111111"
+sportsbook = "Spo7t11111111111111111111111111111111111111"
 
 [programs.devnet]
-sportsbook = "Sports11111111111111111111111111111111111"
+sportsbook = "Spo7t11111111111111111111111111111111111111"
 
 [programs.mainnet]
-sportsbook = "Sports11111111111111111111111111111111111"
+sportsbook = "Spo7t11111111111111111111111111111111111111"
 
 [registry]
 url = "https://api.apr.dev"

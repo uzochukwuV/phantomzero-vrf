@@ -56,6 +56,18 @@ pub fn calculate_parlay_multiplier_dynamic(
     match_indices: &[u8],
     num_legs: u8,
 ) -> u64 {
+    // Validate match indices are within bounds
+    for &match_index in match_indices.iter() {
+        if match_index >= 10 {
+            return MIN_PARLAY_MULTIPLIER; // Return minimum on invalid input
+        }
+    }
+
+    // Prevent division by zero
+    if match_indices.is_empty() {
+        return ODDS_SCALE;
+    }
+
     // Single bets always get 1.0x
     if num_legs == 1 {
         return ODDS_SCALE;
@@ -105,6 +117,28 @@ pub fn calculate_odds_weighted_allocations(
     amount_after_fee: u64,
     parlay_multiplier: u64,
 ) -> Result<(Vec<u64>, u64, u64), &'static str> {
+    // Validate inputs
+    if match_indices.len() != outcomes.len() {
+        return Err("Match indices and outcomes must have same length");
+    }
+
+    if match_indices.is_empty() || match_indices.len() > 10 {
+        return Err("Invalid number of matches (must be 1-10)");
+    }
+
+    // Validate all match indices and outcomes
+    for &match_index in match_indices.iter() {
+        if match_index >= 10 {
+            return Err("Invalid match index (must be 0-9)");
+        }
+    }
+
+    for &outcome in outcomes.iter() {
+        if outcome < 1 || outcome > 3 {
+            return Err("Invalid outcome (must be 1, 2, or 3)");
+        }
+    }
+
     let mut allocations = Vec::with_capacity(match_indices.len());
 
     // Step 1: Calculate target final payout

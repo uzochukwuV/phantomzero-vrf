@@ -94,9 +94,11 @@ pub fn calculate_market_odds(pool: &MatchPool, outcome: u8) -> u64 {
     }
 
     // Apply virtual liquidity to dampen price impact
-    let virtual_liquidity = SEED_PER_MATCH
-        .checked_mul(VIRTUAL_LIQUIDITY_MULTIPLIER)
-        .unwrap_or(0);
+    // Use u128 to prevent overflow: SEED_PER_MATCH * VIRTUAL_LIQUIDITY_MULTIPLIER can exceed u64::MAX
+    let virtual_liquidity = ((SEED_PER_MATCH as u128)
+        .checked_mul(VIRTUAL_LIQUIDITY_MULTIPLIER as u128)
+        .unwrap_or(0))
+        .min(u64::MAX as u128) as u64;
 
     // Add virtual liquidity proportionally (33.33% per outcome)
     let virtual_winning_pool = winning_pool + (virtual_liquidity / 3);

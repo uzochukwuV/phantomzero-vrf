@@ -86,12 +86,21 @@ impl LiquidityPool {
     }
 
     /// Add liquidity to pool
-    pub fn add_liquidity(&mut self, amount: u64) -> u64 {
+    pub fn add_liquidity(&mut self, amount: u64) -> Result<u64> {
         let shares = self.calculate_shares(amount);
-        self.total_liquidity += amount;
-        self.total_shares += shares;
+
+        // Check for overflow when adding liquidity
+        self.total_liquidity = self.total_liquidity
+            .checked_add(amount)
+            .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+
+        // Check for overflow when adding shares
+        self.total_shares = self.total_shares
+            .checked_add(shares)
+            .ok_or(error!(anchor_lang::error::ErrorCode::AccountDidNotSerialize))?;
+
         self.available_liquidity = self.total_liquidity.saturating_sub(self.locked_reserve);
-        shares
+        Ok(shares)
     }
 
     /// Remove liquidity from pool
