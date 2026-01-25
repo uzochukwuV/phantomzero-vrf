@@ -89,7 +89,7 @@ pub fn handler(
         if betting_pool_balance >= final_payout {
             // Betting pool has enough, pay directly
             let betting_pool_key = ctx.accounts.betting_pool.key();
-            let seeds = &[b"betting_pool", &[ctx.accounts.betting_pool.bump]];
+            let seeds = &[b"betting_pool".as_ref(), &[ctx.accounts.betting_pool.bump]];
             let signer = &[&seeds[..]];
 
             let cpi_accounts = Transfer {
@@ -107,7 +107,7 @@ pub fn handler(
             // Pay what betting pool has
             if betting_pool_balance > 0 {
                 let betting_pool_key = ctx.accounts.betting_pool.key();
-                let seeds = &[b"betting_pool", &[ctx.accounts.betting_pool.bump]];
+                let seeds = &[b"betting_pool".as_ref(), &[ctx.accounts.betting_pool.bump]];
                 let signer = &[&seeds[..]];
 
                 let cpi_accounts = Transfer {

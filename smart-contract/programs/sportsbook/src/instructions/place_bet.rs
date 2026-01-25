@@ -121,7 +121,7 @@ pub fn handler(
     // Transfer fee to treasury
     let betting_pool_key = betting_pool.key();
     let seeds = &[
-        b"betting_pool",
+        b"betting_pool".as_ref(),
         &[betting_pool.bump],
     ];
     let signer = &[&seeds[..]];

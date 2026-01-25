@@ -10,7 +10,7 @@ pub mod utils;
 use instructions::*;
 use state::*;
 
-declare_id!("Sports11111111111111111111111111111111111");
+declare_id!("Spo7t111111111111111111111111111111111111111");
 
 #[program]
 pub mod sportsbook {

@@ -42,9 +42,6 @@ pub struct SeedRoundPools<'info> {
 }
 
 pub fn handler(ctx: Context<SeedRoundPools>, round_id: u64) -> Result<()> {
-    let round_accounting = &mut ctx.accounts.round_accounting;
-    let liquidity_pool = &mut ctx.accounts.liquidity_pool;
-
     let mut total_seed_amount = 0u64;
 
     // Seed each match with DIFFERENTIATED amounts based on team matchup
@@ -62,14 +59,14 @@ pub fn handler(ctx: Context<SeedRoundPools>, round_id: u64) -> Result<()> {
         );
 
         // Update match pool with seeds
-        let pool = &mut round_accounting.match_pools[match_index];
+        let pool = &mut ctx.accounts.round_accounting.match_pools[match_index];
         pool.home_win_pool = home_seed;
         pool.away_win_pool = away_seed;
         pool.draw_pool = draw_seed;
         pool.total_pool = home_seed + away_seed + draw_seed;
 
         total_seed_amount += pool.total_pool;
-        round_accounting.total_bet_volume += pool.total_pool;
+        ctx.accounts.round_accounting.total_bet_volume += pool.total_pool;
 
         // Lock odds based on seed ratios
         let (home_odds, away_odds, draw_odds) = calculate_locked_odds_from_seeds(
@@ -78,7 +75,7 @@ pub fn handler(ctx: Context<SeedRoundPools>, round_id: u64) -> Result<()> {
             draw_seed,
         );
 
-        let locked_odds = &mut round_accounting.locked_odds[match_index];
+        let locked_odds = &mut ctx.accounts.round_accounting.locked_odds[match_index];
         locked_odds.home_odds = home_odds;
         locked_odds.away_odds = away_odds;
         locked_odds.draw_odds = draw_odds;
@@ -98,20 +95,24 @@ pub fn handler(ctx: Context<SeedRoundPools>, round_id: u64) -> Result<()> {
 
     // Check if LP pool can fund seeding
     require!(
-        liquidity_pool.can_cover_payout(total_seed_amount),
+        ctx.accounts.liquidity_pool.can_cover_payout(total_seed_amount),
         SportsbookError::InsufficientLPLiquidity
     );
 
+    // Get keys and bump before CPI
+    let betting_pool_key = ctx.accounts.betting_pool.key();
+    let lp_bump = ctx.accounts.liquidity_pool.bump;
+    let lp_account_info = ctx.accounts.liquidity_pool.to_account_info();
+
     // Transfer seed funds from LP pool to betting pool
     // This uses a Cross-Program Invocation (CPI) with PDA signer
-    let betting_pool_key = ctx.accounts.betting_pool.key();
-    let seeds = &[b"liquidity_pool", betting_pool_key.as_ref(), &[liquidity_pool.bump]];
+    let seeds = &[b"liquidity_pool", betting_pool_key.as_ref(), &[lp_bump]];
     let signer = &[&seeds[..]];
 
     let cpi_accounts = Transfer {
         from: ctx.accounts.lp_token_account.to_account_info(),
         to: ctx.accounts.betting_pool_token_account.to_account_info(),
-        authority: ctx.accounts.liquidity_pool.to_account_info(),
+        authority: lp_account_info,
     };
     let cpi_program = ctx.accounts.token_program.to_account_info();
     let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
@@ -119,14 +120,14 @@ pub fn handler(ctx: Context<SeedRoundPools>, round_id: u64) -> Result<()> {
     token::transfer(cpi_ctx, total_seed_amount)?;
 
     // Update LP pool state
-    liquidity_pool.total_liquidity -= total_seed_amount;
-    liquidity_pool.available_liquidity = liquidity_pool
+    ctx.accounts.liquidity_pool.total_liquidity -= total_seed_amount;
+    ctx.accounts.liquidity_pool.available_liquidity = ctx.accounts.liquidity_pool
         .total_liquidity
-        .saturating_sub(liquidity_pool.locked_reserve);
+        .saturating_sub(ctx.accounts.liquidity_pool.locked_reserve);
 
     // Update round accounting
-    round_accounting.protocol_seed_amount = total_seed_amount;
-    round_accounting.seeded = true;
+    ctx.accounts.round_accounting.protocol_seed_amount = total_seed_amount;
+    ctx.accounts.round_accounting.seeded = true;
 
     msg!("Round {} seeded with {} tokens total", round_id, total_seed_amount);
     msg!("Odds locked for all matches");

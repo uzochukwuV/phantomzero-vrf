@@ -75,7 +75,7 @@ pub fn handler(ctx: Context<FinalizeRoundRevenue>, round_id: u64) -> Result<()> 
         // Transfer LP's share back to LP pool
         if profit_to_lp > 0 {
             let betting_pool_key = betting_pool.key();
-            let seeds = &[b"betting_pool", &[betting_pool.bump]];
+            let seeds = &[b"betting_pool".as_ref(), &[betting_pool.bump]];
             let signer = &[&seeds[..]];
 
             let cpi_accounts = Transfer {
