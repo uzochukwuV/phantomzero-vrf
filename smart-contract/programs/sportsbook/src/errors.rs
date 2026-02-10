@@ -56,7 +56,7 @@ pub enum SportsbookError {
     #[msg("Revenue already distributed")]
     RevenueAlreadyDistributed,
 
-    #[msg("Cannot distribute revenue while winners haven't claimed")]
+    #[msg("Cannot finalize revenue before claim deadline expires (25 hours after settlement)")]
     RevenueDistributedBeforeClaims,
 
     #[msg("Overflow in calculation")]

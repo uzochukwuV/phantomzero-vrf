@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::state::{BettingPool, RoundAccounting, Bet, Prediction};
 use crate::errors::SportsbookError;
 use crate::constants::*;
-use crate::utils::{calculate_parlay_multiplier_dynamic, calculate_odds_weighted_allocations};
+use crate::utils::{calculate_parlay_multiplier_dynamic, calculate_odds_weighted_allocations, calculate_max_payout};
 
 #[derive(Accounts)]
 #[instruction(round_id: u64)]
@@ -135,6 +135,20 @@ pub fn handler(
         &ctx.accounts.round_accounting,
         &match_indices,
         match_indices.len() as u8,
+    );
+
+    // CRITICAL: Check protocol has enough capital to cover potential payout
+    // This prevents insolvency if multiple large parlays win
+    let max_possible_payout = calculate_max_payout(
+        amount_after_fee,
+        match_indices.len() as u8,
+        parlay_multiplier,
+    );
+
+    let current_balance = ctx.accounts.betting_pool_token_account.amount;
+    require!(
+        current_balance >= max_possible_payout,
+        SportsbookError::InsufficientProtocolLiquidity
     );
 
     // Increment parlay count (FOMO mechanism)
