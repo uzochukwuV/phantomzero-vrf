@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::state::{BettingPool, RoundAccounting, LiquidityPool};
+use crate::state::{BettingPool, RoundAccounting};
 use crate::errors::SportsbookError;
 use crate::constants::*;
 
@@ -19,20 +19,9 @@ pub struct FinalizeRoundRevenue<'info> {
     )]
     pub round_accounting: Account<'info, RoundAccounting>,
 
-    #[account(
-        mut,
-        seeds = [b"liquidity_pool", betting_pool.key().as_ref()],
-        bump = liquidity_pool.bump,
-    )]
-    pub liquidity_pool: Account<'info, LiquidityPool>,
-
-    /// Betting pool's token account
+    /// Betting pool's token account (protocol holds all funds)
     #[account(mut)]
     pub betting_pool_token_account: Account<'info, TokenAccount>,
-
-    /// LP pool's token account (receives profit share)
-    #[account(mut)]
-    pub lp_token_account: Account<'info, TokenAccount>,
 
     #[account(mut, constraint = authority.key() == betting_pool.authority)]
     pub authority: Signer<'info>,
@@ -41,29 +30,53 @@ pub struct FinalizeRoundRevenue<'info> {
 }
 
 pub fn handler(ctx: Context<FinalizeRoundRevenue>, round_id: u64) -> Result<()> {
-    // Ensure all reserved winnings have been claimed before distributing revenue
-    // This prevents distributing profit while winners haven't been paid yet
+    let clock = Clock::get()?;
+    let current_time = clock.unix_timestamp;
+
+    // IMPORTANT: With multi-match parlays, we CANNOT calculate total_reserved_for_winners
+    // without iterating through all bets (which defeats the purpose of O(10) accounting).
+    //
+    // Instead, we use time-based finalization:
+    // - Winners have 24 hours to claim (or lose to bounty hunters)
+    // - After 24h + buffer (e.g., 1 hour), protocol can finalize revenue
+    // - Any unclaimed winnings after this deadline become protocol profit
+    //
+    // This is acceptable because:
+    // 1. Winners have 24h to claim 100%
+    // 2. Bounty hunters have incentive to claim for winners (get 10%)
+    // 3. After 25 hours, extremely unlikely any unclaimed winners remain
+
+    let claim_deadline = ctx.accounts.round_accounting.round_end_time + 86400; // 24 hours
+    let finalize_buffer = 3600; // 1 hour buffer after claim deadline
+    let earliest_finalize_time = claim_deadline + finalize_buffer;
+
     require!(
-        ctx.accounts.round_accounting.total_claimed >= ctx.accounts.round_accounting.total_reserved_for_winners,
+        current_time >= earliest_finalize_time,
         SportsbookError::RevenueDistributedBeforeClaims
     );
 
-    // Extract account infos and keys BEFORE mutable borrows
-    let betting_pool_info = ctx.accounts.betting_pool.to_account_info();
-    let betting_pool_bump = ctx.accounts.betting_pool.bump;
+    // Extract season pool share
     let season_pool_share_bps = ctx.accounts.betting_pool.season_pool_share_bps;
 
-    // Check actual balance in betting pool contract
+    // Check actual balance remaining in betting pool
     let remaining_in_contract = ctx.accounts.betting_pool_token_account.amount;
+    let protocol_seed = ctx.accounts.round_accounting.protocol_seed_amount;
+    let user_deposits = ctx.accounts.round_accounting.total_user_deposits;
+    let total_paid = ctx.accounts.round_accounting.total_paid_out;
 
-    let mut profit_to_lp = 0u64;
-    let mut loss_from_lp = 0u64;
+    // CORRECT ACCOUNTING:
+    // Operating profit/loss = user_deposits - total_paid (can be negative!)
+    // Remaining balance = seed + user_deposits - total_paid
+    //                   = seed + operating_profit
+    //
+    // If operating_profit is negative, protocol loses from seed capital
+
     let mut season_share = 0u64;
+    let mut operating_profit = 0i64; // Can be negative!
 
-    if remaining_in_contract > 0 {
-        // Season pool gets exactly 2% of ACTUAL USER DEPOSITS
-        let total_user_bets_before_fee = ctx.accounts.round_accounting
-            .total_user_deposits
+    if user_deposits > 0 {
+        // Season pool gets exactly 2% of ACTUAL USER DEPOSITS (before fee)
+        let total_user_bets_before_fee = user_deposits
             .saturating_add(ctx.accounts.round_accounting.protocol_fee_collected);
 
         season_share = (total_user_bets_before_fee as u128)
@@ -77,57 +90,35 @@ pub fn handler(ctx: Context<FinalizeRoundRevenue>, round_id: u64) -> Result<()> 
             season_share = remaining_in_contract;
         }
 
-        // LP gets everything else
-        profit_to_lp = remaining_in_contract.saturating_sub(season_share);
-
-        // Transfer LP's share back to LP pool
-        if profit_to_lp > 0 {
-            let seeds = &[b"betting_pool".as_ref(), &[betting_pool_bump]];
-            let signer = &[&seeds[..]];
-
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.betting_pool_token_account.to_account_info(),
-                to: ctx.accounts.lp_token_account.to_account_info(),
-                authority: betting_pool_info,
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-            token::transfer(cpi_ctx, profit_to_lp)?;
-
-            // Update LP liquidity tracking
-            ctx.accounts.liquidity_pool.total_liquidity += profit_to_lp;
-            ctx.accounts.liquidity_pool.total_profit += profit_to_lp;
-            ctx.accounts.liquidity_pool.available_liquidity = ctx.accounts.liquidity_pool
-                .total_liquidity
-                .saturating_sub(ctx.accounts.liquidity_pool.locked_reserve);
-        }
-
         // Allocate season pool share (stays in betting pool for season rewards)
         if season_share > 0 {
             ctx.accounts.betting_pool.season_reward_pool += season_share;
         }
     }
 
-    // Track if LP took a loss (paid out more than collected)
-    let total_in_contract = ctx.accounts.round_accounting
-        .total_bet_volume
-        .saturating_add(ctx.accounts.round_accounting.protocol_seed_amount);
-    let total_paid = ctx.accounts.round_accounting.total_paid_out;
+    // Calculate operating profit (EXCLUDING seed capital)
+    // This can be negative if protocol paid out more than users deposited
+    operating_profit = user_deposits as i64 - total_paid as i64;
 
-    if total_paid > total_in_contract {
-        loss_from_lp = total_paid - total_in_contract;
-        ctx.accounts.liquidity_pool.total_loss += loss_from_lp;
-    }
+    // Store profit (note: if negative, this represents a loss)
+    // For u64 storage, we'll store the absolute value and track sign separately
+    // or accept that negative profits show as 0
+    let protocol_revenue = if operating_profit > 0 {
+        operating_profit as u64
+    } else {
+        0 // Loss - protocol used seed capital
+    };
 
-    ctx.accounts.round_accounting.lp_revenue_share = profit_to_lp;
+    ctx.accounts.round_accounting.protocol_revenue_share = protocol_revenue;
     ctx.accounts.round_accounting.season_revenue_share = season_share;
     ctx.accounts.round_accounting.revenue_distributed = true;
 
     msg!("Round {} revenue finalized", round_id);
-    msg!("Total in contract: {}", total_in_contract);
+    msg!("Protocol seed: {} (stays in pool)", protocol_seed);
+    msg!("User deposits: {}", user_deposits);
     msg!("Total paid: {}", total_paid);
-    msg!("Profit to LP: {}", profit_to_lp);
-    msg!("Loss from LP: {}", loss_from_lp);
+    msg!("Operating profit: {} (negative = loss from seed)", operating_profit);
+    msg!("Remaining balance: {}", remaining_in_contract);
     msg!("Season share: {}", season_share);
 
     Ok(())

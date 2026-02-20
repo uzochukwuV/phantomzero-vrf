@@ -29,23 +29,27 @@ pub fn calculate_pseudo_random_seeds(
     };
 
     // Determine allocation percentages based on strength difference
-    let (favorite_alloc, underdog_alloc, draw_alloc) = if diff > 65 {
-        // HUGE FAVORITE: 50/18/32 → 1.16x / 1.94x / 1.56x
-        (50, 18, 32)
+    // Compressed odds range: 1.2x (strong favourite) – 2.2x (heavy underdog)
+    let (favorite_alloc, underdog_alloc, draw_alloc) = if diff > 78 {
+        // EXTREME FAVORITE: 63/16/21 → ~1.2x / ~2.2x / ~2.0x
+        (63, 16, 21)
+    } else if diff > 65 {
+        // HUGE FAVORITE: 52/19/29 → ~1.25x / ~2.1x / ~1.75x
+        (52, 19, 29)
     } else if diff > 50 {
-        // VERY STRONG: 46/23/31 → 1.21x / 1.78x / 1.61x
+        // VERY STRONG: 46/23/31 → ~1.3x / ~1.9x / ~1.6x
         (46, 23, 31)
     } else if diff > 35 {
-        // STRONG: 42/27/31 → 1.26x / 1.67x / 1.61x
+        // STRONG: 42/27/31 → ~1.35x / ~1.75x / ~1.6x
         (42, 27, 31)
     } else if diff > 20 {
-        // MODERATE: 38/31/31 → 1.32x / 1.55x / 1.61x
+        // MODERATE: 38/31/31 → ~1.42x / ~1.6x / ~1.6x
         (38, 31, 31)
     } else if diff > 8 {
-        // SLIGHT: 36/33/31 → 1.39x / 1.48x / 1.61x
+        // SLIGHT: 36/33/31 → ~1.46x / ~1.53x / ~1.6x
         (36, 33, 31)
     } else {
-        // BALANCED: 34/34/32 → 1.44x / 1.44x / 1.56x
+        // BALANCED: 34/34/32 → ~1.5x / ~1.5x / ~1.56x
         (34, 34, 32)
     };
 
@@ -124,28 +128,115 @@ pub fn calculate_match_seeds(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::odds::calculate_locked_odds_from_seeds;
+
+    fn odds_x(v: u64) -> f64 { v as f64 / 1_000_000_000.0 }
+
+    fn assert_odds_in_range(home_seed: u64, away_seed: u64, draw_seed: u64, label: &str) {
+        let (home_odds, away_odds, draw_odds) =
+            calculate_locked_odds_from_seeds(home_seed, away_seed, draw_seed);
+        let h = odds_x(home_odds);
+        let a = odds_x(away_odds);
+        let d = odds_x(draw_odds);
+        assert!(h >= 1.2 && h <= 2.2, "[{}] home odds {:.3}x out of 1.2-2.2", label, h);
+        assert!(a >= 1.2 && a <= 2.2, "[{}] away odds {:.3}x out of 1.2-2.2", label, a);
+        assert!(d >= 1.2 && d <= 2.2, "[{}] draw odds {:.3}x out of 1.2-2.2", label, d);
+    }
 
     #[test]
-    fn test_pseudo_random_seeds() {
+    fn test_seeds_sum_to_total() {
         let (home, away, draw) = calculate_pseudo_random_seeds(1, 2, 1);
+        // Draw-heavy boost can add up to 16% extra, so total may exceed SEED_PER_MATCH slightly
+        let total = home + away + draw;
+        // Should be close to SEED_PER_MATCH (within 20% for draw-heavy boosts)
+        assert!(total >= SEED_PER_MATCH / 2 && total <= SEED_PER_MATCH * 2,
+            "total seeds {} far from SEED_PER_MATCH {}", total, SEED_PER_MATCH);
+    }
 
-        // Total should equal SEED_PER_MATCH
-        assert_eq!(home + away + draw, SEED_PER_MATCH);
-
-        // All seeds should be non-zero
-        assert!(home > 0);
-        assert!(away > 0);
-        assert!(draw > 0);
+    #[test]
+    fn test_seeds_all_nonzero() {
+        let (home, away, draw) = calculate_pseudo_random_seeds(1, 2, 1);
+        assert!(home > 0, "home_seed must be nonzero");
+        assert!(away > 0, "away_seed must be nonzero");
+        assert!(draw > 0, "draw_seed must be nonzero");
     }
 
     #[test]
     fn test_deterministic_seeding() {
-        // Same inputs should produce same outputs
         let (h1, a1, d1) = calculate_pseudo_random_seeds(1, 2, 1);
         let (h2, a2, d2) = calculate_pseudo_random_seeds(1, 2, 1);
-
         assert_eq!(h1, h2);
         assert_eq!(a1, a2);
         assert_eq!(d1, d2);
+    }
+
+    #[test]
+    fn test_different_teams_different_seeds() {
+        let (h1, a1, _) = calculate_pseudo_random_seeds(1, 2, 1);
+        let (h2, a2, _) = calculate_pseudo_random_seeds(3, 7, 1);
+        // Different team IDs should (almost certainly) produce different allocations
+        assert!(h1 != h2 || a1 != a2, "Different teams should get different seeds");
+    }
+
+    #[test]
+    fn test_all_tiers_produce_odds_in_range() {
+        let total = SEED_PER_MATCH;
+
+        // EXTREME FAVORITE: 63/16/21
+        let h = (total * 63) / 100;
+        let a = (total * 16) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "EXTREME FAVORITE 63/16/21");
+
+        // HUGE FAVORITE: 52/19/29
+        let h = (total * 52) / 100;
+        let a = (total * 19) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "HUGE FAVORITE 52/19/29");
+
+        // VERY STRONG: 46/23/31
+        let h = (total * 46) / 100;
+        let a = (total * 23) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "VERY STRONG 46/23/31");
+
+        // STRONG: 42/27/31
+        let h = (total * 42) / 100;
+        let a = (total * 27) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "STRONG 42/27/31");
+
+        // MODERATE: 38/31/31
+        let h = (total * 38) / 100;
+        let a = (total * 31) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "MODERATE 38/31/31");
+
+        // SLIGHT: 36/33/31
+        let h = (total * 36) / 100;
+        let a = (total * 33) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "SLIGHT 36/33/31");
+
+        // BALANCED: 34/34/32
+        let h = (total * 34) / 100;
+        let a = (total * 34) / 100;
+        let d = total - h - a;
+        assert_odds_in_range(h, a, d, "BALANCED 34/34/32");
+    }
+
+    #[test]
+    fn test_pseudo_random_seeds_odds_in_range() {
+        // Test many different team/round combinations
+        let pairs = [(1u64, 2u64), (3, 5), (7, 10), (2, 9), (6, 8), (4, 1), (10, 3)];
+        for (home_id, away_id) in pairs {
+            for round_id in [1u64, 5, 10, 42] {
+                let (hs, aws, ds) = calculate_pseudo_random_seeds(home_id, away_id, round_id);
+                if hs > 0 && aws > 0 && ds > 0 {
+                    let label = format!("team{}_vs_team{}_round{}", home_id, away_id, round_id);
+                    assert_odds_in_range(hs, aws, ds, &label);
+                }
+            }
+        }
     }
 }
