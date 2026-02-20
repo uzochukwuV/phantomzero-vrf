@@ -93,11 +93,11 @@ pub const MAX_ROUND_PAYOUTS: u64 = 500_000_000_000_000;
 /// Number of matches per round
 pub const MATCHES_PER_ROUND: usize = 10;
 
-/// Odds compression constants (compress raw odds to 1.25x - 1.95x range)
-pub const MIN_COMPRESSED_ODDS: u64 = 1_250_000_000;  // 1.25x
-pub const MAX_COMPRESSED_ODDS: u64 = 1_950_000_000;  // 1.95x
-pub const RAW_ODDS_MIN: u64 = 1_800_000_000;         // 1.8x raw
-pub const RAW_ODDS_MAX: u64 = 5_500_000_000;         // 5.5x raw
+/// Odds compression constants (compress raw odds to 1.2x - 2.2x range)
+pub const MIN_COMPRESSED_ODDS: u64 = 1_200_000_000;  // 1.2x (strong favorites)
+pub const MAX_COMPRESSED_ODDS: u64 = 2_200_000_000;  // 2.2x (heavy underdogs)
+pub const RAW_ODDS_MIN: u64 = 1_800_000_000;         // 1.8x raw (maps to 1.2x)
+pub const RAW_ODDS_MAX: u64 = 5_500_000_000;         // 5.5x raw (maps to 2.2x)
 
 /// TEAM TOKEN HOLDER BENEFITS
 /// Reduced protocol fee for team token holders (2% instead of 5%)
